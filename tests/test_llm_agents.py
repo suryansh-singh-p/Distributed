@@ -8,7 +8,14 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.llm_engine import LLMEngine, EdgeDemandSensingAgent, P2PNegotiationAgent, CentralArbiterAgent
+from core.llm_engine import (
+    LLMEngine,
+    EdgeDemandSensingAgent,
+    P2PNegotiationAgent,
+    CentralArbiterAgent,
+    canonicalize_sku,
+    canonicalize_region
+)
 
 
 def run_checkpoint_2():
@@ -43,6 +50,20 @@ def run_checkpoint_2():
         assert parsed.get("target_sku") is not None, "Target SKU must be identified!"
 
     print("\n✓ Edge Demand Sensing Agent successfully converted raw text signals into quantitative shock vectors.")
+
+    # 2b. Test Two-Tier Canonicalization against Vocabulary Drift
+    print("\n--- Testing Vocabulary Drift Canonicalizer (SKU & Region Guards) ---")
+    assert canonicalize_sku("laptop") == "SKU-LAPTOP"
+    assert canonicalize_sku("UltraBook Pro 15") == "SKU-LAPTOP"
+    assert canonicalize_sku("SKU-LAPTOPS") == "SKU-LAPTOP"
+    assert canonicalize_sku("phone") == "SKU-PHONE"
+    assert canonicalize_sku("air conditioner") == "SKU-AC"
+    assert canonicalize_sku("winter jacket") == "SKU-JACKET"
+    assert canonicalize_region("Delhi") == "node_north"
+    assert canonicalize_region("Mumbai") == "node_west"
+    assert canonicalize_region("Bangalore") == "node_south"
+    assert canonicalize_region("Kolkata") == "node_east"
+    print("✓ Canonicalizer successfully mapped fuzzy synonyms, product titles, and cities to strict catalog keys!")
 
     # 3. Test P2P Autonomous Agent Negotiation
     print("\n--- Testing Agent 2: Decentralized P2P Inventory Negotiation ---")

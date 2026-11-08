@@ -7,8 +7,56 @@ for zero-failure execution in offline or sandboxed environments.
 import os
 import json
 import re
+import difflib
 from typing import Dict, Any, Optional, List
 from config import SKU_CATALOG, REGIONS
+
+
+def canonicalize_sku(raw_sku: Optional[str]) -> str:
+    """Resolve the LLM output to one of the exact catalog keys in SKU_CATALOG."""
+    if not raw_sku:
+        return "all"
+    c_upper = str(raw_sku).strip().upper()
+    if c_upper in SKU_CATALOG:
+        return c_upper
+    if f"SKU-{c_upper}" in SKU_CATALOG:
+        return f"SKU-{c_upper}"
+    for sku_id in SKU_CATALOG.keys():
+        if sku_id in c_upper:
+            return sku_id
+    c_lower = str(raw_sku).lower()
+    if "laptop" in c_lower or "ultrabook" in c_lower or "notebook" in c_lower:
+        return "SKU-LAPTOP"
+    if "phone" in c_lower or "smartphone" in c_lower or "mobile" in c_lower:
+        return "SKU-PHONE"
+    if re.search(r'\bac\b', c_lower) or "air conditioner" in c_lower or "cooling" in c_lower:
+        return "SKU-AC"
+    if "jacket" in c_lower or "parka" in c_lower or "coat" in c_lower or "winter" in c_lower:
+        return "SKU-JACKET"
+    return "all"
+
+
+def canonicalize_region(raw_region: Optional[str]) -> str:
+    """Resolve the LLM output to one of the exact region keys in REGIONS."""
+    if not raw_region:
+        return "all"
+    c_lower = str(raw_region).strip().lower()
+    if c_lower in REGIONS:
+        return c_lower
+    if f"node_{c_lower}" in REGIONS:
+        return f"node_{c_lower}"
+    for node_id in REGIONS.keys():
+        if node_id in c_lower:
+            return node_id
+    if "north" in c_lower or "delhi" in c_lower or "ny" in c_lower:
+        return "node_north"
+    if "south" in c_lower or "bangalore" in c_lower or "tx" in c_lower:
+        return "node_south"
+    if "east" in c_lower or "kolkata" in c_lower or "fl" in c_lower:
+        return "node_east"
+    if "west" in c_lower or "mumbai" in c_lower or "ca" in c_lower:
+        return "node_west"
+    return "all"
 
 
 class LLMEngine:
@@ -196,26 +244,31 @@ class EdgeDemandSensingAgent:
     Agent residing on regional edge nodes.
     Parses unstructured text (social trends, weather reports, local disruptions)
     into structured demand multipliers and affected SKU bindings.
+    Enforces canonical SKU & Region mappings to prevent vocabulary drift.
     """
     def __init__(self, llm_engine: LLMEngine):
         self.llm = llm_engine
+        sku_list = list(SKU_CATALOG.keys())
+        sku_examples = [f"{k} ({SKU_CATALOG[k]['name']})" for k in sku_list]
+        region_list = list(REGIONS.keys())
         self.system_prompt = (
             "You are an expert E-Commerce Demand-Sensing AI Agent in a Distributed Analytics architecture. "
-            "Analyze raw text signals and extract: target_region ('node_north', 'node_south', 'node_east', 'node_west', or 'all'), "
-            "target_sku ('SKU-PHONE', 'SKU-LAPTOP', 'SKU-AC', 'SKU-JACKET', or 'all'), "
-            "demand_multiplier (float, e.g. 2.5 for surge, 0.4 for slump), confidence (0.0 to 1.0), and reasoning. "
+            f"Analyze raw text signals and extract structured parameters.\n"
+            f"Allowed target_region: {region_list} or 'all'.\n"
+            f"Allowed target_sku: {sku_list} or 'all'. (Catalog: {', '.join(sku_examples)})\n"
+            "Extract: target_region, target_sku, demand_multiplier (float e.g. 3.5), confidence (0.0 to 1.0), and reasoning. "
             "Return valid JSON ONLY."
         )
 
     def analyze_signal(self, raw_text: str) -> Dict[str, Any]:
-        """Convert unstructured text into structured shock parameters."""
+        """Convert unstructured text into structured shock parameters with defensive canonicalization."""
         prompt = f"Analyze the following real-time unstructured market signal:\n\"{raw_text}\"\n\nJSON output:"
         response_text = self.llm.complete(prompt=prompt, system_prompt=self.system_prompt)
-        
+
         # Clean JSON markdown fences if present
         clean_text = re.sub(r"```json\s*", "", response_text)
         clean_text = re.sub(r"```\s*$", "", clean_text).strip()
-        
+
         try:
             data = json.loads(clean_text)
         except Exception:
@@ -226,6 +279,20 @@ class EdgeDemandSensingAgent:
                 "confidence": 0.85,
                 "reasoning": f"Parsed text signal: {raw_text}"
             }
+
+        # Apply two-tier canonicalization guards
+        raw_target_sku = data.get("target_sku")
+        raw_target_region = data.get("target_region")
+
+        data["target_sku"] = canonicalize_sku(raw_target_sku)
+        data["target_region"] = canonicalize_region(raw_target_region)
+
+        # Ensure multiplier is a valid positive float clamped safely between 0.1x and 10.0x
+        try:
+            data["demand_multiplier"] = max(0.1, min(10.0, float(data.get("demand_multiplier", 2.0))))
+        except (ValueError, TypeError):
+            data["demand_multiplier"] = 2.0
+
         return data
 
 
