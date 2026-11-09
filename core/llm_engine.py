@@ -59,6 +59,53 @@ def canonicalize_region(raw_region: Optional[str]) -> str:
     return "all"
 
 
+def canonicalize_sku(raw_sku: Optional[str]) -> str:
+    """Resolve the LLM output to one of the exact catalog keys in SKU_CATALOG."""
+    if not raw_sku:
+        return "all"
+    c_upper = str(raw_sku).strip().upper()
+    if c_upper in SKU_CATALOG:
+        return c_upper
+    if f"SKU-{c_upper}" in SKU_CATALOG:
+        return f"SKU-{c_upper}"
+    for sku_id in SKU_CATALOG.keys():
+        if sku_id in c_upper:
+            return sku_id
+    c_lower = str(raw_sku).lower()
+    if "laptop" in c_lower or "ultrabook" in c_lower or "notebook" in c_lower:
+        return "SKU-LAPTOP"
+    if "phone" in c_lower or "smartphone" in c_lower or "mobile" in c_lower:
+        return "SKU-PHONE"
+    if re.search(r'\bac\b', c_lower) or "air conditioner" in c_lower or "cooling" in c_lower:
+        return "SKU-AC"
+    if "jacket" in c_lower or "parka" in c_lower or "coat" in c_lower or "winter" in c_lower:
+        return "SKU-JACKET"
+    return "all"
+
+
+def canonicalize_region(raw_region: Optional[str]) -> str:
+    """Resolve the LLM output to one of the exact region keys in REGIONS."""
+    if not raw_region:
+        return "all"
+    c_lower = str(raw_region).strip().lower()
+    if c_lower in REGIONS:
+        return c_lower
+    if f"node_{c_lower}" in REGIONS:
+        return f"node_{c_lower}"
+    for node_id in REGIONS.keys():
+        if node_id in c_lower:
+            return node_id
+    if "north" in c_lower or "delhi" in c_lower or "ny" in c_lower:
+        return "node_north"
+    if "south" in c_lower or "bangalore" in c_lower or "tx" in c_lower:
+        return "node_south"
+    if "east" in c_lower or "kolkata" in c_lower or "fl" in c_lower:
+        return "node_east"
+    if "west" in c_lower or "mumbai" in c_lower or "ca" in c_lower:
+        return "node_west"
+    return "all"
+
+
 class LLMEngine:
     """
     Unified LLM Client supporting Local Ollama, Google Gemini, OpenAI,

@@ -18,3 +18,8 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace
+
+# Local Private Notes (Not committed)
+PRESENTATION_NOTES.md
+*.bak
+
